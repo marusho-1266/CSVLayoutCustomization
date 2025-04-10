@@ -179,7 +179,7 @@
 PyInstallerを使用して単一の実行ファイルを作成：
 
 ```
-pyinstaller --onefile --windowed --clean csv_layout_tool.py
+pyinstaller --onefile --windowed --clean CSVLayoutCustomization.py
 ```
 
 ### 9.3 配布方法

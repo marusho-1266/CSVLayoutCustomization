@@ -18,8 +18,8 @@ class CSVLayoutTool(TkinterDnD.Tk):
         self.current_profile_name = tk.StringVar()
         self.current_file = None
         self.preview_df = None
-        self.encoding = tk.StringVar(value="utf-8")  # デフォルトはUTF-8
-        self.output_encoding = tk.StringVar(value="utf-8")  # 出力のエンコーディング
+        self.encoding = tk.StringVar(value="shift_jis")  # デフォルトはshift_jis
+        self.output_encoding = tk.StringVar(value="shift_jis")  # 出力のエンコーディング
         
         self.create_widgets()
         self.load_profiles()

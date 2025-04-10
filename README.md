@@ -17,7 +17,7 @@ CSVファイルのレイアウトを簡単に変更できるWindows用デスク�
 ### 実行ファイルから（一般ユーザー向け）
 
 1. 提供されたZIPファイルをダウンロードして解凍
-2. `CSVLayoutTool.exe` をダブルクリックして実行
+2. `CSVLayoutCustomization.exe` をダブルクリックして実行
 
 ### ソースコードから（開発者向け）
 
@@ -28,7 +28,7 @@ CSVファイルのレイアウトを簡単に変更できるWindows用デスク�
    ```
 3. Pythonスクリプトを実行
    ```
-   python csv_layout_tool.py
+   python CSVLayoutCustomization.py
    ```
 
 ## 使い方
@@ -124,15 +124,6 @@ CSVファイルのレイアウトを簡単に変更できるWindows用デスク�
 
 - Windowsのセキュリティソフトがブロックしていないか確認
 - .NET Frameworkがインストールされているか確認
-
-## ライセンス
-
-このソフトウェアはMITライセンスの下で公開されています。詳細はLICENSEファイルをご覧ください。
-
-## 開発者情報
-
-本ツールに関するフィードバックや問題報告は以下にお願いします：
-example@example.com
 
 ## 更新履歴
 
