@@ -336,16 +336,19 @@ class CSVLayoutTool(TkinterDnD.Tk):
                         new_column = parts[0].strip()
                         merge_info = ':'.join(parts[1:])
                         
-                        source_columns_str, *separator_parts = merge_info.split(' ', 1)
+                        # merge_info を ':' で分割した後の処理
+                        merge_info_parts = merge_info.split(' ', 1)
+                        source_columns_str = merge_info_parts[0]
                         source_columns = [col.strip() for col in source_columns_str.split(',')]
-                        
-                        separator = ' ' if not separator_parts else separator_parts[0].strip()
-                        
+
+                        # separator_parts が存在するかどうかで区切り文字を決定
+                        # merge_info_parts の長さが 2 以上なら区切り文字が指定されている
+                        separator = merge_info_parts[1].strip() if len(merge_info_parts) > 1 else ''
+
                         # すべてのソース列が存在するか確認
                         if all(col in result_df.columns for col in source_columns):
-                            # 結合
-                            result_df[new_column] = result_df[source_columns].astype(str).apply(
-                                lambda x: separator.join([str(item) for item in x]), axis=1
+                            result_df[new_column] = result_df[source_columns].apply(
+                                lambda x: separator.join([str(item) if pd.notna(item) else '' for item in x]), axis=1
                             )
             
             # 2. 文字除去処理
