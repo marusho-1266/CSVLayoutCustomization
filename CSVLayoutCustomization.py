@@ -132,23 +132,31 @@ class CSVLayoutTool(TkinterDnD.Tk):
         # プレビュー領域
         preview_frame = ttk.LabelFrame(right_frame, text="プレビュー")
         preview_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
+
+        # --- スクロールバーを先に配置 ---
+        # スクロールバー (Vertical)
+        vsb = ttk.Scrollbar(preview_frame, orient="vertical")
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # 横スクロールバー (Horizontal)
+        hsb = ttk.Scrollbar(preview_frame, orient="horizontal")
+        hsb.pack(side=tk.BOTTOM, fill=tk.X)
+
+        # --- Treeviewを最後に配置し、スクロールコマンドを設定 ---
         # プレビューのツリービュー
-        self.tree = ttk.Treeview(preview_frame)
-        self.tree.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
-        
-        # スクロールバー
-        vsb = ttk.Scrollbar(preview_frame, orient="vertical", command=self.tree.yview)
-        vsb.pack(fill=tk.Y, side=tk.RIGHT)
-        self.tree.configure(yscrollcommand=vsb.set)
-        
-        # 横スクロールバー
-        hsb = ttk.Scrollbar(preview_frame, orient="horizontal", command=self.tree.xview)
-        hsb.pack(fill=tk.X, side=tk.BOTTOM)
-        self.tree.configure(xscrollcommand=hsb.set)
-        
-        # 実行ボタン
-        ttk.Button(right_frame, text="変換して保存", command=self.process_and_save).pack(fill=tk.X, padx=5, pady=5)
+        # Treeview作成時にスクロールコマンドを設定する
+        self.tree = ttk.Treeview(preview_frame, yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        # fill=tk.BOTH と expand=True で残りのスペースを埋めるように配置
+        self.tree.pack(fill=tk.BOTH, expand=True)
+
+        # --- スクロールバーのcommandを設定 ---
+        # ScrollbarのcommandにTreeviewのメソッドを設定
+        vsb.config(command=self.tree.yview)
+        hsb.config(command=self.tree.xview)
+
+        # 実行ボタン (元の位置に戻す)
+        ttk.Button(right_frame, text="変換して保存", command=self.process_and_save).pack(fill=tk.X, padx=5, pady=5) # この行は元の場所にあるはず
+
         
     def load_profiles(self):
         try:
