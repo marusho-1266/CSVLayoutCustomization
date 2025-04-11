@@ -20,7 +20,9 @@ class CSVLayoutTool(TkinterDnD.Tk):
         self.preview_df = None
         self.encoding = tk.StringVar(value="shift_jis")  # デフォルトはshift_jis
         self.output_encoding = tk.StringVar(value="shift_jis")  # 出力のエンコーディング
-        
+        self.remove_prefecture_var = tk.BooleanVar(value=False)
+        self.remove_prefecture_column_var = tk.StringVar()
+
         self.create_widgets()
         self.load_profiles()
         
@@ -88,6 +90,28 @@ class CSVLayoutTool(TkinterDnD.Tk):
         self.remove_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         ttk.Label(remove_frame, text="例: 電話番号:-,( ) / 商品名:※").pack(pady=5, padx=5, anchor=tk.W)
         
+        prefecture_frame = ttk.Frame(remove_frame)
+        prefecture_frame.pack(fill=tk.X, padx=5, pady=(10, 5))
+
+        self.remove_prefecture_check = ttk.Checkbutton(
+            prefecture_frame,
+            text="住所項目から都道府県を削除する",
+            variable=self.remove_prefecture_var,
+            onvalue=True,
+            offvalue=False
+        )
+        self.remove_prefecture_check.pack(side=tk.LEFT, anchor=tk.W)
+
+        prefecture_entry_frame = ttk.Frame(remove_frame)
+        prefecture_entry_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
+        ttk.Label(prefecture_entry_frame, text="対象項目名 (複数可, カンマ区切り):").pack(side=tk.LEFT, padx=(0, 5))
+        self.remove_prefecture_entry = ttk.Entry(
+            prefecture_entry_frame,
+            textvariable=self.remove_prefecture_column_var,
+            width=25
+        )
+        self.remove_prefecture_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
         # 文字追加タブ
         add_frame = ttk.Frame(self.operations_notebook)
         self.operations_notebook.add(add_frame, text="文字追加")
@@ -189,7 +213,8 @@ class CSVLayoutTool(TkinterDnD.Tk):
                 "reorder": "",
                 "merge": "",
                 "remove": "",
-                "add": ""
+                "add": "",
+                "remove_prefecture": {"enabled": False, "column": ""}
             }
             
             self.profile_combobox["values"] = list(self.profiles.keys())
@@ -207,7 +232,11 @@ class CSVLayoutTool(TkinterDnD.Tk):
             "reorder": self.reorder_text.get("1.0", tk.END).strip(),
             "merge": self.merge_text.get("1.0", tk.END).strip(),
             "remove": self.remove_text.get("1.0", tk.END).strip(),
-            "add": self.add_text.get("1.0", tk.END).strip()
+            "add": self.add_text.get("1.0", tk.END).strip(),
+            "remove_prefecture": {
+                "enabled": self.remove_prefecture_var.get(),
+                "column": self.remove_prefecture_column_var.get()
+            }
         }
         
         self.save_profiles()
@@ -232,6 +261,8 @@ class CSVLayoutTool(TkinterDnD.Tk):
                 self.merge_text.delete("1.0", tk.END)
                 self.remove_text.delete("1.0", tk.END)
                 self.add_text.delete("1.0", tk.END)
+                self.remove_prefecture_var.set(False)
+                self.remove_prefecture_column_var.set("")
                 
             self.save_profiles()
     
@@ -253,7 +284,11 @@ class CSVLayoutTool(TkinterDnD.Tk):
         
         self.add_text.delete("1.0", tk.END)
         self.add_text.insert(tk.END, profile.get("add", ""))
-        
+
+        remove_pref_settings = profile.get("remove_prefecture", {"enabled": False, "column": ""}) # デフォルト値
+        self.remove_prefecture_var.set(remove_pref_settings.get("enabled", False))
+        self.remove_prefecture_column_var.set(remove_pref_settings.get("column", ""))
+
         # 現在のファイルがあれば再プレビュー
         if self.current_file:
             self.preview_file(self.current_file)
@@ -320,9 +355,43 @@ class CSVLayoutTool(TkinterDnD.Tk):
             messagebox.showerror("エラー", f"ファイルの読み込みに失敗しました: {str(e)}")
     
     def process_dataframe(self, df):
+
+        # 除去対象都道府県リスト
+        PREFECTURES = [
+            "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
+            "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県",
+            "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県", "岐阜県",
+            "静岡県", "愛知県", "三重県", "滋賀県", "京都府", "大阪府", "兵庫県",
+            "奈良県", "和歌山県", "鳥取県", "島根県", "岡山県", "広島県", "山口県",
+            "徳島県", "香川県", "愛媛県", "高知県", "福岡県", "佐賀県", "長崎県",
+            "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県"
+        ]
+
         try:
             # 元のデータフレームをコピー
             result_df = df.copy()
+
+            if self.remove_prefecture_var.get():
+                # カンマ区切りで項目名を取得し、前後の空白を除去
+                target_columns_str = self.remove_prefecture_column_var.get().strip()
+                if target_columns_str: # 入力がある場合のみ処理
+                    target_columns = [col.strip() for col in target_columns_str.split(',') if col.strip()] # 空の項目名を除外
+
+                    # 都道府県削除関数
+                    def remove_pref(address):
+                        if isinstance(address, str):
+                            for pref in PREFECTURES:
+                                if address.startswith(pref):
+                                    return address[len(pref):]
+                        return address
+
+                    # 各対象列に対して処理を実行
+                    for target_column in target_columns:
+                        if target_column in result_df.columns:
+                            result_df[target_column] = result_df[target_column].apply(remove_pref)
+                        else:
+                            # 対象列が存在しない場合、警告を表示
+                            print(f"警告: 都道府県削除の対象列 '{target_column}' が見つかりません。")
             
             # 1. 結合処理
             merge_settings = self.merge_text.get("1.0", tk.END).strip()
