@@ -46,6 +46,9 @@ class CSVLayoutTool(TkinterDnD.Tk):
         # 逆引き用 (都道府県削除用、既存)
         self.PREFECTURES = list(self.PREFECTURE_CODES.keys())
 
+        # --- 空列マッピング用の一時変数 ---
+        self._empty_col_mapping = {}
+
         self.create_widgets()
         self.load_profiles()
         
@@ -631,21 +634,57 @@ class CSVLayoutTool(TkinterDnD.Tk):
             
             # --- 列の並べ替え ---
             reorder_settings = self.reorder_text.get("1.0", tk.END).strip()
-            if reorder_settings:
-                columns = [col.strip() for col in reorder_settings.split(',')]
-                
-                # 指定された列のみを対象に
-                valid_columns = [col for col in columns if col in result_df.columns]
-                
-                # 指定されていない列を最後に追加
-                remaining_columns = [col for col in result_df.columns if col not in valid_columns]
-                
-                # 最終的な列順序
-                final_columns = valid_columns + remaining_columns
-                
-                # 並べ替え
-                result_df = result_df[final_columns]
-            
+            # 並べ替え設定がない場合でも空列マッピングをクリア
+            if not reorder_settings:
+                self._empty_col_mapping = {}
+            else:
+                # カンマで分割し、前後の空白を除去するが、空文字列は保持する
+                specified_columns_with_blanks = [col.strip() for col in reorder_settings.split(',')]
+
+                final_columns = []
+                new_empty_cols_mapping = {} # この処理内でのマッピング
+                empty_col_counter = 1
+
+                for col_name in specified_columns_with_blanks:
+                    if col_name: # 指定された項目名が空でない場合
+                        if col_name in result_df.columns:
+                            final_columns.append(col_name)
+                        else:
+                            # 結合や抽出で新しく作られた列かもしれないので再チェック
+                            if col_name in result_df.columns:
+                                final_columns.append(col_name)
+                            else:
+                                print(f"警告: 並べ替えで指定された列 '{col_name}' が見つかりません。")
+                    else: # 指定された項目名が空の場合 (空白列を追加)
+                        # ユニークなプレースホルダー名を生成
+                        placeholder_name = f"__EMPTY_COLUMN_{empty_col_counter}__"
+                        while placeholder_name in result_df.columns or placeholder_name in new_empty_cols_mapping:
+                            empty_col_counter += 1
+                            placeholder_name = f"__EMPTY_COLUMN_{empty_col_counter}__"
+
+                        # result_df に空の列を追加 (値はすべて空文字列)
+                        result_df[placeholder_name] = ""
+                        final_columns.append(placeholder_name)
+                        new_empty_cols_mapping[placeholder_name] = '' # 保存時に空文字列''に戻すためのマッピング
+                        empty_col_counter += 1
+
+                # 指定された列（空列含む）のみを抽出して並べ替え
+                if final_columns:
+                    try:
+                        result_df = result_df[final_columns]
+                        # インスタンス変数に空列のマッピング情報を保存
+                        self._empty_col_mapping = new_empty_cols_mapping
+                    except KeyError as e:
+                         print(f"エラー: 列の選択中にエラーが発生しました。存在しない列: {e}")
+                         # エラーが発生した場合、元の順序を維持するか、空にするかなど検討
+                         # ここでは元のDFを返す
+                         self._empty_col_mapping = {} # マッピングもクリア
+                         return df
+                else:
+                    print("警告: 並べ替えで指定された有効な列がありません。出力は空になります。")
+                    result_df = pd.DataFrame()
+                    self._empty_col_mapping = {} # マッピングもクリア
+
             return result_df
             
         except Exception as e:
@@ -653,62 +692,114 @@ class CSVLayoutTool(TkinterDnD.Tk):
             return df
     
     def update_preview(self):
-        if self.preview_df is None:
-            return
-            
         # ツリービューをクリア
-        self.tree.delete(*self.tree.get_children())
-        
-        # 列の設定
-        self.tree["columns"] = list(self.preview_df.columns)
-        self.tree["show"] = "headings"
-        
-        # 各列の設定
-        for col in self.preview_df.columns:
-            self.tree.heading(col, text=col)
-            self.tree.column(col, width=100)
-        
-        # データの追加（最大10行）
-        preview_rows = min(10, len(self.preview_df))
-        for i in range(preview_rows):
-            values = list(self.preview_df.iloc[i])
-            # 数値を文字列に変換
-            values = [str(val) for val in values]
-            self.tree.insert("", tk.END, values=values)
-            
-        if len(self.preview_df) > 10:
-            self.tree.insert("", tk.END, values=["..."] * len(self.preview_df.columns))
+        for i in self.tree.get_children():
+            self.tree.delete(i)
+        self.tree["columns"] = ()
+        self.tree["displaycolumns"] = ()
+
+        if self.preview_df is None or self.preview_df.empty:
+             return
+
+        try:
+            columns = list(self.preview_df.columns)
+            display_columns = [] # Treeviewに表示する列名リスト
+            column_widths = {}   # 列幅辞書
+            column_headings = {} # ヘッダーテキスト辞書
+
+            # プレースホルダー名を空文字列に置き換えて表示準備
+            empty_col_mapping = getattr(self, '_empty_col_mapping', {})
+            temp_columns_for_display = [] # 表示用の列名リスト（プレースホルダー含む）
+
+            for col in columns:
+                temp_columns_for_display.append(col) # まず元の列名を追加
+                if col in empty_col_mapping:
+                    # プレースホルダー列の場合、ヘッダーは空文字列にする
+                    column_headings[col] = ""
+                else:
+                    column_headings[col] = col # 通常の列はそのまま
+                column_widths[col] = 100 # デフォルト幅
+                display_columns.append(col) # 表示対象に追加
+
+            self.tree["columns"] = temp_columns_for_display # Treeview内部の列IDリスト
+            self.tree["displaycolumns"] = display_columns # 実際に表示する列のリストと順序
+            self.tree["show"] = "headings"
+
+            # 各列のヘッダーと幅を設定
+            for col in display_columns: # 表示する列だけ設定
+                self.tree.heading(col, text=column_headings[col], anchor=tk.W)
+                self.tree.column(col, width=column_widths[col], anchor=tk.W, stretch=tk.NO)
+
+            # データの追加（最大10行 + 省略表示）
+            preview_rows = min(10, len(self.preview_df))
+            for i in range(preview_rows):
+                # ilocでデータを取得し、表示列の順序でリストに変換
+                row_data = self.preview_df.iloc[i]
+                values = [str(row_data[col]) if pd.notna(row_data[col]) else "" for col in temp_columns_for_display]
+                self.tree.insert("", tk.END, values=values)
+
+            if len(self.preview_df) > 10:
+                ellipsis_values = ["..."] * len(temp_columns_for_display)
+                self.tree.insert("", tk.END, values=ellipsis_values)
+
+        except Exception as e:
+             messagebox.showerror("プレビュー更新エラー", f"プレビューの更新中にエラーが発生しました: {str(e)}")
+             for i in self.tree.get_children():
+                 self.tree.delete(i)
+             self.tree["columns"] = ()
+             self.tree["displaycolumns"] = ()
     
     def process_and_save(self):
         if not self.current_file:
             messagebox.showerror("エラー", "処理するCSVファイルが選択されていません")
             return
-            
+        # プレビューDFがない場合や空の場合もチェック
+        if self.preview_df is None or self.preview_df.empty:
+             # 空のDFを保存するかどうか。ここではエラーとする。
+             messagebox.showerror("エラー", "処理対象のデータがありません。ファイルを確認してください。")
+             return
+
         try:
-            # 元のファイルを読み込み
-            df = pd.read_csv(self.current_file, encoding=self.encoding.get())
-            
-            # 処理
-            processed_df = self.process_dataframe(df)
-            
+            # プレビューに使ったデータフレームを取得してコピー
+            processed_df_preview = self.preview_df.copy()
+
+            # --- 保存直前に空列のプレースホルダー名を空文字列に戻す ---
+            empty_col_mapping = getattr(self, '_empty_col_mapping', {})
+            rename_dict = {}
+            if empty_col_mapping:
+                # 実際にDataFrameに存在するプレースホルダー列のみを対象にする
+                rename_dict = {ph: '' for ph in empty_col_mapping if ph in processed_df_preview.columns}
+
+            if rename_dict:
+                # 列名を変更したDataFrameを保存用とする
+                processed_df_to_save = processed_df_preview.rename(columns=rename_dict)
+            else:
+                # 列名変更がない場合はそのまま
+                processed_df_to_save = processed_df_preview
+            # -------------------------------------------------------
+
             # 保存先を選択
             base_name = os.path.basename(self.current_file)
             name, ext = os.path.splitext(base_name)
-            
             output_path = filedialog.asksaveasfilename(
                 title="変換後のファイルを保存",
                 initialfile=f"{name}_converted{ext}",
+                defaultextension=".csv",
                 filetypes=[("CSVファイル", "*.csv"), ("すべてのファイル", "*.*")]
             )
-            
-            if output_path:
-                # 選択された出力エンコーディングで保存
-                processed_df.to_csv(output_path, index=False, encoding=self.output_encoding.get())
-                messagebox.showinfo("成功", f"ファイルを保存しました: {output_path}")
-                
-        except Exception as e:
-            messagebox.showerror("エラー", f"処理に失敗しました: {str(e)}")
 
+            if output_path:
+                selected_output_encoding = self.output_encoding.get()
+                try:
+                    # 空文字列ヘッダーを持つDataFrameを保存
+                    processed_df_to_save.to_csv(output_path, index=False, encoding=selected_output_encoding)
+                    messagebox.showinfo("成功", f"ファイルを保存しました: {output_path}")
+                except Exception as e:
+                     messagebox.showerror("保存エラー", f"ファイルの保存中にエラーが発生しました (エンコーディング: {selected_output_encoding}):\n{str(e)}")
+
+        except Exception as e:
+            messagebox.showerror("エラー", f"処理と保存中に予期せぬエラーが発生しました: {str(e)}")
+        # finallyブロックは不要 (process_dataframeの開始時にリセットするため)
 if __name__ == "__main__":
     app = CSVLayoutTool()
     app.mainloop()
