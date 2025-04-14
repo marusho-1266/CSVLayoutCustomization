@@ -20,8 +20,31 @@ class CSVLayoutTool(TkinterDnD.Tk):
         self.preview_df = None
         self.encoding = tk.StringVar(value="shift_jis")  # デフォルトはshift_jis
         self.output_encoding = tk.StringVar(value="shift_jis")  # 出力のエンコーディング
+
+        # --- 都道府県削除関連 ---
         self.remove_prefecture_var = tk.BooleanVar(value=False)
         self.remove_prefecture_column_var = tk.StringVar()
+
+        # --- 都道府県コード取得関連 (新規追加) ---
+        self.get_pref_code_var = tk.BooleanVar(value=False)
+        self.get_pref_code_source_column_var = tk.StringVar()
+        self.get_pref_code_new_column_var = tk.StringVar(value="都道府県コード")        
+
+        # --- 都道府県名とコードのマッピング (新規追加) ---
+        self.PREFECTURE_CODES = {
+            "北海道": "01", "青森県": "02", "岩手県": "03", "宮城県": "04", "秋田県": "05",
+            "山形県": "06", "福島県": "07", "茨城県": "08", "栃木県": "09", "群馬県": "10",
+            "埼玉県": "11", "千葉県": "12", "東京都": "13", "神奈川県": "14", "新潟県": "15",
+            "富山県": "16", "石川県": "17", "福井県": "18", "山梨県": "19", "長野県": "20",
+            "岐阜県": "21", "静岡県": "22", "愛知県": "23", "三重県": "24", "滋賀県": "25",
+            "京都府": "26", "大阪府": "27", "兵庫県": "28", "奈良県": "29", "和歌山県": "30",
+            "鳥取県": "31", "島根県": "32", "岡山県": "33", "広島県": "34", "山口県": "35",
+            "徳島県": "36", "香川県": "37", "愛媛県": "38", "高知県": "39", "福岡県": "40",
+            "佐賀県": "41", "長崎県": "42", "熊本県": "43", "大分県": "44", "宮崎県": "45",
+            "鹿児島県": "46", "沖縄県": "47"
+        }
+        # 逆引き用 (都道府県削除用、既存)
+        self.PREFECTURES = list(self.PREFECTURE_CODES.keys())
 
         self.create_widgets()
         self.load_profiles()
@@ -120,7 +143,40 @@ class CSVLayoutTool(TkinterDnD.Tk):
         self.add_text = ScrolledText(add_frame, height=8, width=40, wrap=tk.WORD)
         self.add_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         ttk.Label(add_frame, text="例: 商品コード:前:A- / 価格:後:円").pack(pady=5, padx=5, anchor=tk.W)
-        
+
+        # --- 都道府県コード取得タブ (新規追加) ---
+        pref_code_frame = ttk.Frame(self.operations_notebook)
+        self.operations_notebook.add(pref_code_frame, text="都道府県コード")
+
+        pref_code_check_frame = ttk.Frame(pref_code_frame)
+        pref_code_check_frame.pack(fill=tk.X, padx=5, pady=(10, 5))
+        self.get_pref_code_check = ttk.Checkbutton(
+            pref_code_check_frame,
+            text="都道府県名からコードを取得して新しい列を追加する",
+            variable=self.get_pref_code_var
+        )
+        self.get_pref_code_check.pack(anchor=tk.W)
+
+        pref_code_source_frame = ttk.Frame(pref_code_frame)
+        pref_code_source_frame.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(pref_code_source_frame, text="都道府県名を含む項目名:").pack(side=tk.LEFT, padx=(0, 5))
+        self.get_pref_code_source_entry = ttk.Entry(
+            pref_code_source_frame,
+            textvariable=self.get_pref_code_source_column_var,
+            width=20
+        )
+        self.get_pref_code_source_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        pref_code_new_frame = ttk.Frame(pref_code_frame)
+        pref_code_new_frame.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(pref_code_new_frame, text="新しい項目名 (コード列):").pack(side=tk.LEFT, padx=(0, 5))
+        self.get_pref_code_new_entry = ttk.Entry(
+            pref_code_new_frame,
+            textvariable=self.get_pref_code_new_column_var,
+            width=20
+        )
+        self.get_pref_code_new_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
         # 右側フレーム（プレビューと実行）
         right_frame = ttk.LabelFrame(main_frame, text="プレビューと実行")
         right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -214,7 +270,8 @@ class CSVLayoutTool(TkinterDnD.Tk):
                 "merge": "",
                 "remove": "",
                 "add": "",
-                "remove_prefecture": {"enabled": False, "column": ""}
+                "remove_prefecture": {"enabled": False, "column": ""},
+                "get_pref_code": {"enabled": False, "source_column": "", "new_column": "都道府県コード"}
             }
             
             self.profile_combobox["values"] = list(self.profiles.keys())
@@ -236,6 +293,11 @@ class CSVLayoutTool(TkinterDnD.Tk):
             "remove_prefecture": {
                 "enabled": self.remove_prefecture_var.get(),
                 "column": self.remove_prefecture_column_var.get()
+            },
+            "get_pref_code": {
+                "enabled": self.get_pref_code_var.get(),
+                "source_column": self.get_pref_code_source_column_var.get(),
+                "new_column": self.get_pref_code_new_column_var.get()
             }
         }
         
@@ -263,6 +325,9 @@ class CSVLayoutTool(TkinterDnD.Tk):
                 self.add_text.delete("1.0", tk.END)
                 self.remove_prefecture_var.set(False)
                 self.remove_prefecture_column_var.set("")
+                self.get_pref_code_var.set(False)
+                self.get_pref_code_source_column_var.set("")
+                self.get_pref_code_new_column_var.set("都道府県コード")                
                 
             self.save_profiles()
     
@@ -273,21 +338,26 @@ class CSVLayoutTool(TkinterDnD.Tk):
             
         profile = self.profiles[profile_name]
         
+        # 既存の設定読み込み
         self.reorder_text.delete("1.0", tk.END)
         self.reorder_text.insert(tk.END, profile.get("reorder", ""))
-        
         self.merge_text.delete("1.0", tk.END)
         self.merge_text.insert(tk.END, profile.get("merge", ""))
-        
         self.remove_text.delete("1.0", tk.END)
         self.remove_text.insert(tk.END, profile.get("remove", ""))
-        
         self.add_text.delete("1.0", tk.END)
         self.add_text.insert(tk.END, profile.get("add", ""))
 
+        # 都道府県削除設定の読み込み
         remove_pref_settings = profile.get("remove_prefecture", {"enabled": False, "column": ""}) # デフォルト値
         self.remove_prefecture_var.set(remove_pref_settings.get("enabled", False))
         self.remove_prefecture_column_var.set(remove_pref_settings.get("column", ""))
+
+        # 都道府県コード設定の読み込み
+        get_pref_code_settings = profile.get("get_pref_code", {"enabled": False, "source_column": "", "new_column": "都道府県コード"})
+        self.get_pref_code_var.set(get_pref_code_settings.get("enabled", False))
+        self.get_pref_code_source_column_var.set(get_pref_code_settings.get("source_column", ""))
+        self.get_pref_code_new_column_var.set(get_pref_code_settings.get("new_column", "都道府県コード"))
 
         # 現在のファイルがあれば再プレビュー
         if self.current_file:
@@ -371,6 +441,35 @@ class CSVLayoutTool(TkinterDnD.Tk):
             # 元のデータフレームをコピー
             result_df = df.copy()
 
+            # --- 都道府県コード取得処理 (新規追加 - 他の処理より先に行うのが自然) ---
+            if self.get_pref_code_var.get():
+                source_col = self.get_pref_code_source_column_var.get().strip()
+                new_col = self.get_pref_code_new_column_var.get().strip()
+
+                if source_col and new_col: # ソース列名と新しい列名の両方が指定されている場合
+                    if source_col in result_df.columns:
+                        if new_col in result_df.columns:
+                             # 新しい列名が既存の列と重複する場合は警告（上書きはしない）
+                             print(f"警告: 新しい都道府県コード列名 '{new_col}' は既に存在します。別の名前を指定してください。")
+                        else:
+                            # 都道府県コードを取得する関数
+                            def get_code(address):
+                                if isinstance(address, str):
+                                    for pref, code in self.PREFECTURE_CODES.items():
+                                        if address.startswith(pref):
+                                            return code
+                                return "" # 見つからない場合は空文字
+
+                            # 新しい列を追加してコードを格納
+                            result_df[new_col] = result_df[source_col].apply(get_code)
+                    else:
+                        print(f"警告: 都道府県コード取得のソース列 '{source_col}' が見つかりません。")
+                elif not source_col:
+                     print("警告: 都道府県コード取得のソース列名が指定されていません。")
+                elif not new_col:
+                     print("警告: 都道府県コード取得の新しい列名が指定されていません。")
+
+            # --- 都道府県名削除処理 ---
             if self.remove_prefecture_var.get():
                 # カンマ区切りで項目名を取得し、前後の空白を除去
                 target_columns_str = self.remove_prefecture_column_var.get().strip()
@@ -393,7 +492,7 @@ class CSVLayoutTool(TkinterDnD.Tk):
                             # 対象列が存在しない場合、警告を表示
                             print(f"警告: 都道府県削除の対象列 '{target_column}' が見つかりません。")
             
-            # 1. 結合処理
+            # --- 結合処理 ---
             merge_settings = self.merge_text.get("1.0", tk.END).strip()
             if merge_settings:
                 for line in merge_settings.split('\n'):
@@ -420,7 +519,7 @@ class CSVLayoutTool(TkinterDnD.Tk):
                                 lambda x: separator.join([str(item) if pd.notna(item) else '' for item in x]), axis=1
                             )
             
-            # 2. 文字除去処理
+            # --- 文字除去処理　---
             remove_settings = self.remove_text.get("1.0", tk.END).strip()
             if remove_settings:
                 for line in remove_settings.split('\n'):
@@ -436,7 +535,7 @@ class CSVLayoutTool(TkinterDnD.Tk):
                             for char in chars_to_remove:
                                 result_df[column] = result_df[column].astype(str).str.replace(char.strip(), '', regex=False)
             
-            # 3. 文字追加処理
+            # --- 文字追加処理　---
             add_settings = self.add_text.get("1.0", tk.END).strip()
             if add_settings:
                 for line in add_settings.split('\n'):
@@ -455,7 +554,7 @@ class CSVLayoutTool(TkinterDnD.Tk):
                             elif position == "後":
                                 result_df[column] = result_df[column].astype(str) + chars_to_add
             
-            # 4. 列の並べ替え
+            # --- 列の並べ替え ---
             reorder_settings = self.reorder_text.get("1.0", tk.END).strip()
             if reorder_settings:
                 columns = [col.strip() for col in reorder_settings.split(',')]
