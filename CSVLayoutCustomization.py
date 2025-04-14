@@ -103,7 +103,16 @@ class CSVLayoutTool(TkinterDnD.Tk):
         self.merge_text = ScrolledText(merge_frame, height=8, width=40, wrap=tk.WORD)
         self.merge_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         ttk.Label(merge_frame, text="例: 氏名:姓,名 / 住所:都道府県,市区町村,番地").pack(pady=5, padx=5, anchor=tk.W)
-        
+
+        # --- 文字列抽出タブ  ---
+        extract_frame = ttk.Frame(self.operations_notebook)
+        self.operations_notebook.add(extract_frame, text="文字列抽出")
+        ttk.Label(extract_frame, text="抽出設定 (新項目名:抽出元項目:開始位置:文字数)").pack(pady=(10, 5), padx=5, anchor=tk.W)
+        self.extract_text = ScrolledText(extract_frame, height=8, width=40, wrap=tk.WORD)
+        self.extract_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        ttk.Label(extract_frame, text="例: 商品コード前半:商品コード:1:5\n   郵便番号下4桁:郵便番号:5:4").pack(pady=5, padx=5, anchor=tk.W)
+        ttk.Label(extract_frame, text="※開始位置は1から数えます").pack(pady=(0,5), padx=5, anchor=tk.W)
+
         # 文字除去タブ
         remove_frame = ttk.Frame(self.operations_notebook)
         self.operations_notebook.add(remove_frame, text="文字除去")
@@ -144,7 +153,7 @@ class CSVLayoutTool(TkinterDnD.Tk):
         self.add_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         ttk.Label(add_frame, text="例: 商品コード:前:A- / 価格:後:円").pack(pady=5, padx=5, anchor=tk.W)
 
-        # --- 都道府県コード取得タブ (新規追加) ---
+        # --- 都道府県コード取得タブ ---
         pref_code_frame = ttk.Frame(self.operations_notebook)
         self.operations_notebook.add(pref_code_frame, text="都道府県コード")
 
@@ -268,6 +277,7 @@ class CSVLayoutTool(TkinterDnD.Tk):
             self.profiles[profile_name] = {
                 "reorder": "",
                 "merge": "",
+                "extract": "",
                 "remove": "",
                 "add": "",
                 "remove_prefecture": {"enabled": False, "column": ""},
@@ -288,6 +298,7 @@ class CSVLayoutTool(TkinterDnD.Tk):
         self.profiles[profile_name] = {
             "reorder": self.reorder_text.get("1.0", tk.END).strip(),
             "merge": self.merge_text.get("1.0", tk.END).strip(),
+            "extract": self.extract_text.get("1.0", tk.END).strip(),
             "remove": self.remove_text.get("1.0", tk.END).strip(),
             "add": self.add_text.get("1.0", tk.END).strip(),
             "remove_prefecture": {
@@ -321,6 +332,7 @@ class CSVLayoutTool(TkinterDnD.Tk):
                 self.current_profile_name.set("")
                 self.reorder_text.delete("1.0", tk.END)
                 self.merge_text.delete("1.0", tk.END)
+                self.extract_text.delete("1.0", tk.END)
                 self.remove_text.delete("1.0", tk.END)
                 self.add_text.delete("1.0", tk.END)
                 self.remove_prefecture_var.set(False)
@@ -343,6 +355,8 @@ class CSVLayoutTool(TkinterDnD.Tk):
         self.reorder_text.insert(tk.END, profile.get("reorder", ""))
         self.merge_text.delete("1.0", tk.END)
         self.merge_text.insert(tk.END, profile.get("merge", ""))
+        self.extract_text.delete("1.0", tk.END)
+        self.extract_text.insert(tk.END, profile.get("extract", ""))
         self.remove_text.delete("1.0", tk.END)
         self.remove_text.insert(tk.END, profile.get("remove", ""))
         self.add_text.delete("1.0", tk.END)
@@ -518,7 +532,68 @@ class CSVLayoutTool(TkinterDnD.Tk):
                             result_df[new_column] = result_df[source_columns].apply(
                                 lambda x: separator.join([str(item) if pd.notna(item) else '' for item in x]), axis=1
                             )
-            
+
+            # --- 文字列抽出処理 ---
+            extract_settings = self.extract_text.get("1.0", tk.END).strip()
+            if extract_settings:
+                for line in extract_settings.split('\n'):
+                    line = line.strip()
+                    if not line: continue
+                    try:
+                        parts = line.split(':', 3) # 新項目名:抽出元項目:開始位置:文字数
+                        if len(parts) == 4:
+                            new_col = parts[0].strip()
+                            source_col = parts[1].strip()
+                            start_pos_str = parts[2].strip()
+                            num_chars_str = parts[3].strip()
+
+                            if not new_col:
+                                print(f"警告: 文字列抽出設定で新しい項目名が空です: {line}")
+                                continue
+                            if not source_col:
+                                print(f"警告: 文字列抽出設定で抽出元項目が指定されていません: {line}")
+                                continue
+                            if source_col not in result_df.columns:
+                                print(f"警告: 文字列抽出の抽出元項目 '{source_col}' が見つかりません。")
+                                continue
+                            if new_col in result_df.columns:
+                                print(f"警告: 文字列抽出の新しい項目名 '{new_col}' は既に存在します。上書きします。") # またはスキップ
+
+                            # 開始位置と文字数を数値に変換
+                            try:
+                                start_pos = int(start_pos_str)
+                                num_chars = int(num_chars_str)
+                                if start_pos < 1:
+                                    print(f"警告: 文字列抽出の開始位置は1以上である必要があります: {line}")
+                                    continue
+                                if num_chars < 0: # 0文字抽出は空文字になるので許容しても良いかも
+                                    print(f"警告: 文字列抽出の文字数は0以上である必要があります: {line}")
+                                    continue
+                            except ValueError:
+                                print(f"警告: 文字列抽出の開始位置または文字数が数値ではありません: {line}")
+                                continue
+
+                            # スライス処理 (開始位置は1ベースなので-1する)
+                            # pandas の str.slice は stop に終了インデックス+1 を指定する
+                            start_index = start_pos - 1
+                            end_index = start_index + num_chars
+
+                            # apply を使う方法 (NaNを安全に処理)
+                            def extract_substring(text):
+                                if pd.isna(text):
+                                    return "" # NaNの場合は空文字を返す
+                                text_str = str(text) # 数値なども文字列に変換
+                                if start_index >= len(text_str):
+                                    return "" # 開始位置が文字列長を超える場合は空文字
+                                return text_str[start_index:end_index]
+
+                            result_df[new_col] = result_df[source_col].apply(extract_substring)
+
+                        else:
+                            print(f"警告: 文字列抽出設定の形式が正しくありません ('新項目名:抽出元項目:開始位置:文字数') : {line}")
+                    except Exception as e:
+                        print(f"エラー: 文字列抽出処理中にエラーが発生しました ({line}): {e}")
+
             # --- 文字除去処理　---
             remove_settings = self.remove_text.get("1.0", tk.END).strip()
             if remove_settings:
