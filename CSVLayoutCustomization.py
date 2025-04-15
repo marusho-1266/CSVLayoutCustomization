@@ -52,6 +52,12 @@ class CSVLayoutTool(TkinterDnD.Tk):
         # --- 空列マッピング用の一時変数 ---
         self._empty_col_mapping = {}
 
+        # ウィジェット作成メソッドを呼び出す前にプレビュー関連の変数を初期化
+        self.preview_frame = None
+        self.tree = None
+        self.vsb = None
+        self.hsb = None
+
         self.create_widgets()
         self.load_profiles()
         
@@ -224,30 +230,8 @@ class CSVLayoutTool(TkinterDnD.Tk):
         # ファイル選択ボタン
         ttk.Button(right_frame, text="ファイルを選択", command=self.select_file).pack(fill=tk.X, padx=5, pady=5)
         
-        # プレビュー領域
-        preview_frame = ttk.LabelFrame(right_frame, text="プレビュー")
-        preview_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        # --- スクロールバーを先に配置 ---
-        # スクロールバー (Vertical)
-        vsb = ttk.Scrollbar(preview_frame, orient="vertical")
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-
-        # 横スクロールバー (Horizontal)
-        hsb = ttk.Scrollbar(preview_frame, orient="horizontal")
-        hsb.pack(side=tk.BOTTOM, fill=tk.X)
-
-        # --- Treeviewを最後に配置し、スクロールコマンドを設定 ---
-        # プレビューのツリービュー
-        # Treeview作成時にスクロールコマンドを設定する
-        self.tree = ttk.Treeview(preview_frame, yscrollcommand=vsb.set, xscrollcommand=hsb.set)
-        # fill=tk.BOTH と expand=True で残りのスペースを埋めるように配置
-        self.tree.pack(fill=tk.BOTH, expand=True)
-
-        # --- スクロールバーのcommandを設定 ---
-        # ScrollbarのcommandにTreeviewのメソッドを設定
-        vsb.config(command=self.tree.yview)
-        hsb.config(command=self.tree.xview)
+        # --- プレビュー領域のウィジェット ---
+        self._create_preview_widgets(right_frame)
 
         # --- ヘッダー除去チェックボックス ---
         header_frame = ttk.Frame(right_frame)
@@ -264,6 +248,42 @@ class CSVLayoutTool(TkinterDnD.Tk):
         # 実行ボタン (元の位置に戻す)
         ttk.Button(right_frame, text="変換して保存", command=self.process_and_save).pack(fill=tk.X, padx=5, pady=5) # この行は元の場所にあるはず
 
+    # --- プレビューウィジェット作成用メソッド ---
+    def _create_preview_widgets(self, parent_frame):
+        # プレビュー領域フレーム (インスタンス変数に格納)
+        self.preview_frame = ttk.LabelFrame(parent_frame, text="プレビュー")
+        self.preview_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # スクロールバー (インスタンス変数に格納)
+        self.vsb = ttk.Scrollbar(self.preview_frame, orient="vertical")
+        self.vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.hsb = ttk.Scrollbar(self.preview_frame, orient="horizontal")
+        self.hsb.pack(side=tk.BOTTOM, fill=tk.X)
+
+        # Treeview (インスタンス変数に格納)
+        self.tree = ttk.Treeview(self.preview_frame, yscrollcommand=self.vsb.set, xscrollcommand=self.hsb.set)
+        self.tree.pack(fill=tk.BOTH, expand=True)
+
+        # スクロールバーのcommand設定
+        self.vsb.config(command=self.tree.yview)
+        self.hsb.config(command=self.tree.xview)
+
+    # --- Treeviewを再生成するメソッド ---
+    def _recreate_treeview(self):
+        if self.tree:
+            self.tree.destroy() # 古いTreeviewを破棄
+
+        # 新しいTreeviewを作成し、インスタンス変数 self.tree を更新
+        self.tree = ttk.Treeview(self.preview_frame, yscrollcommand=self.vsb.set, xscrollcommand=self.hsb.set)
+        self.tree.pack(fill=tk.BOTH, expand=True) # 再度packする
+
+        # スクロールバーのcommandを新しいTreeviewに再設定
+        self.vsb.config(command=self.tree.yview)
+        self.hsb.config(command=self.tree.xview)
+
+        # 新しいTreeviewをスクロールバーの前に表示させる (念のため)
+        self.vsb.lift(self.tree)
+        self.hsb.lift(self.tree)
         
     def load_profiles(self):
         try:
@@ -340,16 +360,17 @@ class CSVLayoutTool(TkinterDnD.Tk):
         if not profile_name:
             messagebox.showerror("エラー", "プロファイルが選択されていません")
             return
-            
+
         if messagebox.askyesno("確認", f"プロファイル「{profile_name}」を削除しますか？"):
             del self.profiles[profile_name]
             self.profile_combobox["values"] = list(self.profiles.keys())
-            
+
             if self.profiles:
                 self.current_profile_name.set(list(self.profiles.keys())[0])
                 self.load_profile(None)
             else:
                 self.current_profile_name.set("")
+                # Clear settings fields
                 self.reorder_text.delete("1.0", tk.END)
                 self.merge_text.delete("1.0", tk.END)
                 self.extract_text.delete("1.0", tk.END)
@@ -359,7 +380,7 @@ class CSVLayoutTool(TkinterDnD.Tk):
                 self.remove_prefecture_column_var.set("")
                 self.get_pref_code_var.set(False)
                 self.get_pref_code_source_column_var.set("")
-                self.get_pref_code_new_column_var.set("都道府県コード")                
+                self.get_pref_code_new_column_var.set("都道府県コード")
                 self.remove_header_var.set(False)
 
             self.save_profiles()
@@ -406,156 +427,198 @@ class CSVLayoutTool(TkinterDnD.Tk):
             title="CSVファイルを選択",
             filetypes=[("CSVファイル", "*.csv"), ("すべてのファイル", "*.*")]
         )
-        
         if file_path:
-            self.preview_file(file_path)
+            # --- ファイル選択時も drop と同様に after_idle を使う ---
+            self.after_idle(lambda: self._clear_and_preview_logic(file_path))
     
     def drop(self, event):
-        file_path = event.data
-        
-        # Windows形式のパスを修正
-        file_path = file_path.replace("{", "").replace("}", "")
-        
-        # ダブルクォートを除去
-        if file_path.startswith('"') and file_path.endswith('"'):
-            file_path = file_path[1:-1]
-        
-        if os.path.isfile(file_path) and file_path.lower().endswith('.csv'):
+        try:
+            file_path = event.data
+            file_path = file_path.replace("{", "").replace("}", "")
+            if file_path.startswith('"') and file_path.endswith('"'):
+                file_path = file_path[1:-1]
+
+            if not os.path.isfile(file_path):
+                messagebox.showerror("エラー", "有効なファイルではありません")
+                return
+            if not file_path.lower().endswith('.csv'):
+                messagebox.showerror("エラー", "CSVファイルのみ対応しています")
+                return
+
+            # --- 修正箇所: Treeview再生成とプレビュー処理を遅延実行 ---
+            self.after_idle(lambda: self._clear_and_preview_logic(file_path))
+            # --- 修正箇所 終了 ---
+
+        except Exception as e:
+            messagebox.showerror("エラー", f"ファイルのドロップ処理中にエラーが発生しました: {str(e)}")
+            # エラー発生時のクリーンアップ (ここも after_idle が安全)
+            self.after_idle(self._cleanup_on_error)
+
+
+    # --- 新しいロジック用メソッド ---
+    def _clear_and_preview_logic(self, file_path):
+        """Treeviewを再生成し、新しいファイルをプレビューする"""
+        try:
+            # Treeviewを再生成
+            self._recreate_treeview()
+
+            # 現在のファイルとプレビューデータをクリア
+            self.current_file = None
+            self.preview_df = None
+
+            # 新しいファイルをプレビュー
             self.preview_file(file_path)
-        else:
-            messagebox.showerror("エラー", "有効なCSVファイルではありません")
+
+        except Exception as task_error:
+            messagebox.showerror("エラー", f"ファイル処理タスク中にエラーが発生しました: {str(task_error)}")
+            self._cleanup_on_error()
+
+    def _cleanup_on_error(self):
+        """エラー発生時に状態をクリアし、Treeviewも再生成する"""
+        self.current_file = None
+        self.preview_df = None
+        try:
+            # エラー時もTreeviewを再生成してクリーンな状態にする
+            self._recreate_treeview()
+        except Exception as cleanup_error:
+             print(f"警告: エラー後のTreeview再生成中にエラー: {cleanup_error}")
     
     def preview_file(self, file_path):
+        # --- preview_file 内の update_preview() 呼び出し前のクリア処理は不要 ---
+        # --- なぜなら _clear_and_preview_logic で Treeview が再生成されるため ---
         try:
-            # 選択されたエンコーディングでファイルを読み込み
             selected_encoding = self.encoding.get()
-            
-            # エンコーディングでのエラーをキャッチするためのエラーハンドリング
+            df = None
             try:
                 df = pd.read_csv(file_path, encoding=selected_encoding)
             except UnicodeDecodeError:
-                # もし選択したエンコーディングでエラーが発生したら、代替を試行
                 alternative_encoding = "shift_jis" if selected_encoding == "utf-8" else "utf-8"
                 try:
                     df = pd.read_csv(file_path, encoding=alternative_encoding)
-                    # 成功したら元のエンコーディング変数を更新
                     self.encoding.set(alternative_encoding)
-                    messagebox.showinfo("エンコーディング変更", 
+                    messagebox.showinfo("エンコーディング変更",
                                         f"選択されたエンコーディング({selected_encoding})では読み込めませんでした。\n"
                                         f"代わりに{alternative_encoding}で読み込みました。")
                 except UnicodeDecodeError:
-                    # 両方のエンコーディングが失敗した場合
                     messagebox.showerror("エラー", "UTF-8とShift-JISのどちらでもファイルを読み込めませんでした。\n"
                                                 "別のCSVファイルを試してください。")
+                    self._cleanup_on_error() # エラー時はクリーンアップ
                     return
-            
-            # 現在のファイルとして設定
-            self.current_file = file_path
-            
-            # タイトル更新
-            self.title(f"CSVレイアウト変更ツール - {os.path.basename(file_path)}")
-            
-            # プレビューの作成
-            self.preview_df = self.process_dataframe(df)
-            self.update_preview()
-            
-        except Exception as e:
-            messagebox.showerror("エラー", f"ファイルの読み込みに失敗しました: {str(e)}")
-    
-    def process_dataframe(self, df):
+                except Exception as inner_e: # その他の読み込みエラー
+                     messagebox.showerror("エラー", f"ファイルの読み込み中にエラーが発生しました ({alternative_encoding}): {str(inner_e)}")
+                     self._cleanup_on_error()
+                     return
+            except Exception as outer_e: # その他の読み込みエラー
+                 messagebox.showerror("エラー", f"ファイルの読み込み中にエラーが発生しました ({selected_encoding}): {str(outer_e)}")
+                 self._cleanup_on_error()
+                 return
 
-        # 除去対象都道府県リスト
-        PREFECTURES = [
-            "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
-            "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県",
-            "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県", "岐阜県",
-            "静岡県", "愛知県", "三重県", "滋賀県", "京都府", "大阪府", "兵庫県",
-            "奈良県", "和歌山県", "鳥取県", "島根県", "岡山県", "広島県", "山口県",
-            "徳島県", "香川県", "愛媛県", "高知県", "福岡県", "佐賀県", "長崎県",
-            "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県"
-        ]
+            # dfが正常に読み込めた場合のみ続行
+            if df is None:
+                # 通常ここには来ないはずだが念のため
+                self._cleanup_on_error()
+                return
+
+            self.current_file = file_path
+            self.title(f"CSVレイアウト変更ツール - {os.path.basename(file_path)}")
+
+            # プレビューの作成 (process_dataframe は df を受け取る)
+            self.preview_df = self.process_dataframe(df) # df を渡す
+            self.update_preview() # update_preview は self.preview_df を使う
+
+        except Exception as e:
+            messagebox.showerror("エラー", f"ファイルプレビュー処理全体でエラーが発生しました: {str(e)}")
+            self._cleanup_on_error() # プレビュー処理中のエラーでもクリーンアップ
+    
+    def process_dataframe(self, df: pd.DataFrame) -> pd.DataFrame: 
 
         try:
-            # 元のデータフレームをコピー
             result_df = df.copy()
 
-            # --- 都道府県コード取得処理 (新規追加 - 他の処理より先に行うのが自然) ---
+            # --- 都道府県コード取得処理 ---
             if self.get_pref_code_var.get():
                 source_col = self.get_pref_code_source_column_var.get().strip()
                 new_col = self.get_pref_code_new_column_var.get().strip()
-
-                if source_col and new_col: # ソース列名と新しい列名の両方が指定されている場合
+                if source_col and new_col:
                     if source_col in result_df.columns:
                         if new_col in result_df.columns:
-                             # 新しい列名が既存の列と重複する場合は警告（上書きはしない）
-                             print(f"警告: 新しい都道府県コード列名 '{new_col}' は既に存在します。別の名前を指定してください。")
+                             print(f"警告: 新しい都道府県コード列名 '{new_col}' は既に存在します。") # messagebox.showwarning の方が良いかも
                         else:
-                            # 都道府県コードを取得する関数
                             def get_code(address):
                                 if isinstance(address, str):
                                     for pref, code in self.PREFECTURE_CODES.items():
                                         if address.startswith(pref):
                                             return code
-                                return "" # 見つからない場合は空文字
-
-                            # 新しい列を追加してコードを格納
+                                return ""
                             result_df[new_col] = result_df[source_col].apply(get_code)
                     else:
-                        print(f"警告: 都道府県コード取得のソース列 '{source_col}' が見つかりません。")
-                elif not source_col:
-                     print("警告: 都道府県コード取得のソース列名が指定されていません。")
-                elif not new_col:
-                     print("警告: 都道府県コード取得の新しい列名が指定されていません。")
+                        print(f"警告: 都道府県コード取得のソース列 '{source_col}' が見つかりません。") # messagebox.showwarning
+                # ... (ソース列名、新列名がない場合の警告) ...
 
             # --- 都道府県名削除処理 ---
             if self.remove_prefecture_var.get():
-                # カンマ区切りで項目名を取得し、前後の空白を除去
                 target_columns_str = self.remove_prefecture_column_var.get().strip()
-                if target_columns_str: # 入力がある場合のみ処理
-                    target_columns = [col.strip() for col in target_columns_str.split(',') if col.strip()] # 空の項目名を除外
-
-                    # 都道府県削除関数
+                if target_columns_str:
+                    target_columns = [col.strip() for col in target_columns_str.split(',') if col.strip()]
                     def remove_pref(address):
                         if isinstance(address, str):
-                            for pref in PREFECTURES:
+                            # --- self.PREFECTURES を使用 ---
+                            for pref in self.PREFECTURES:
                                 if address.startswith(pref):
                                     return address[len(pref):]
                         return address
-
-                    # 各対象列に対して処理を実行
                     for target_column in target_columns:
                         if target_column in result_df.columns:
                             result_df[target_column] = result_df[target_column].apply(remove_pref)
                         else:
-                            # 対象列が存在しない場合、警告を表示
-                            print(f"警告: 都道府県削除の対象列 '{target_column}' が見つかりません。")
-            
+                            print(f"警告: 都道府県削除の対象列 '{target_column}' が見つかりません。") # messagebox.showwarning
+
             # --- 結合処理 ---
             merge_settings = self.merge_text.get("1.0", tk.END).strip()
             if merge_settings:
                 for line in merge_settings.split('\n'):
-                    if not line.strip():
-                        continue
-                        
-                    parts = line.split(':')
-                    if len(parts) >= 2:
-                        new_column = parts[0].strip()
-                        merge_info = ':'.join(parts[1:])
-                        
-                        # merge_info を ':' で分割した後の処理
-                        merge_info_parts = merge_info.split(' ', 1)
-                        source_columns_str = merge_info_parts[0]
-                        source_columns = [col.strip() for col in source_columns_str.split(',')]
+                    line = line.strip()
+                    if not line: continue
+                    try: # 設定行のパースエラーをキャッチ
+                        parts = line.split(':', 1) # 新項目名と残りで分割
+                        if len(parts) == 2:
+                            new_column = parts[0].strip()
+                            merge_info = parts[1].strip()
 
-                        # separator_parts が存在するかどうかで区切り文字を決定
-                        # merge_info_parts の長さが 2 以上なら区切り文字が指定されている
-                        separator = merge_info_parts[1].strip() if len(merge_info_parts) > 1 else ''
+                            # 区切り文字を特定 (最後のスペースで分割)
+                            separator = ''
+                            source_columns_str = merge_info
+                            if ' ' in merge_info:
+                                parts_merge = merge_info.rsplit(' ', 1)
+                                source_columns_str = parts_merge[0].strip()
+                                separator = parts_merge[1].strip() # 区切り文字はスペースを含む可能性あり
 
-                        # すべてのソース列が存在するか確認
-                        if all(col in result_df.columns for col in source_columns):
+                            source_columns = [col.strip() for col in source_columns_str.split(',') if col.strip()]
+
+                            if not new_column:
+                                print(f"警告: 結合設定で新項目名が空です: {line}")
+                                continue
+                            if not source_columns:
+                                print(f"警告: 結合設定で結合元項目が指定されていません: {line}")
+                                continue
+
+                            missing_cols = [col for col in source_columns if col not in result_df.columns]
+                            if missing_cols:
+                                print(f"警告: 結合の元項目が見つかりません: {', '.join(missing_cols)} (設定: {line})")
+                                continue
+
+                            if new_column in result_df.columns:
+                                print(f"警告: 結合先の項目名 '{new_column}' は既に存在します。上書きします。")
+
+                            # 結合実行
                             result_df[new_column] = result_df[source_columns].apply(
                                 lambda x: separator.join([str(item) if pd.notna(item) else '' for item in x]), axis=1
                             )
+                        else:
+                             print(f"警告: 結合設定の形式が正しくありません (':') : {line}")
+                    except Exception as merge_ex:
+                        print(f"エラー: 結合処理中にエラーが発生しました ({line}): {merge_ex}")
+
 
             # --- 文字列抽出処理 ---
             extract_settings = self.extract_text.get("1.0", tk.END).strip()
@@ -564,242 +627,272 @@ class CSVLayoutTool(TkinterDnD.Tk):
                     line = line.strip()
                     if not line: continue
                     try:
-                        parts = line.split(':', 3) # 新項目名:抽出元項目:開始位置:文字数
+                        parts = line.split(':', 3)
                         if len(parts) == 4:
-                            new_col = parts[0].strip()
-                            source_col = parts[1].strip()
-                            start_pos_str = parts[2].strip()
-                            num_chars_str = parts[3].strip()
+                            new_col, source_col, start_pos_str, num_chars_str = [p.strip() for p in parts]
 
-                            if not new_col:
-                                print(f"警告: 文字列抽出設定で新しい項目名が空です: {line}")
-                                continue
-                            if not source_col:
-                                print(f"警告: 文字列抽出設定で抽出元項目が指定されていません: {line}")
-                                continue
-                            if source_col not in result_df.columns:
-                                print(f"警告: 文字列抽出の抽出元項目 '{source_col}' が見つかりません。")
-                                continue
-                            if new_col in result_df.columns:
-                                print(f"警告: 文字列抽出の新しい項目名 '{new_col}' は既に存在します。上書きします。") # またはスキップ
+                            if not new_col: print(f"警告: 文字列抽出設定で新項目名が空: {line}"); continue
+                            if not source_col: print(f"警告: 文字列抽出設定で抽出元項目が空: {line}"); continue
+                            if source_col not in result_df.columns: print(f"警告: 文字列抽出の抽出元項目 '{source_col}' が見つかりません。"); continue
+                            if new_col in result_df.columns: print(f"警告: 文字列抽出の新項目名 '{new_col}' は既に存在。上書きします。")
 
-                            # 開始位置と文字数を数値に変換
                             try:
                                 start_pos = int(start_pos_str)
                                 num_chars = int(num_chars_str)
-                                if start_pos < 1:
-                                    print(f"警告: 文字列抽出の開始位置は1以上である必要があります: {line}")
-                                    continue
-                                if num_chars < 0: # 0文字抽出は空文字になるので許容しても良いかも
-                                    print(f"警告: 文字列抽出の文字数は0以上である必要があります: {line}")
-                                    continue
-                            except ValueError:
-                                print(f"警告: 文字列抽出の開始位置または文字数が数値ではありません: {line}")
-                                continue
+                                if start_pos < 1: print(f"警告: 文字列抽出の開始位置は1以上: {line}"); continue
+                                if num_chars < 0: print(f"警告: 文字列抽出の文字数は0以上: {line}"); continue
+                            except ValueError: print(f"警告: 文字列抽出の開始位置/文字数が数値でない: {line}"); continue
 
-                            # スライス処理 (開始位置は1ベースなので-1する)
-                            # pandas の str.slice は stop に終了インデックス+1 を指定する
                             start_index = start_pos - 1
                             end_index = start_index + num_chars
 
-                            # apply を使う方法 (NaNを安全に処理)
                             def extract_substring(text):
-                                if pd.isna(text):
-                                    return "" # NaNの場合は空文字を返す
-                                text_str = str(text) # 数値なども文字列に変換
-                                if start_index >= len(text_str):
-                                    return "" # 開始位置が文字列長を超える場合は空文字
+                                if pd.isna(text): return ""
+                                text_str = str(text)
+                                if start_index >= len(text_str): return ""
                                 return text_str[start_index:end_index]
 
                             result_df[new_col] = result_df[source_col].apply(extract_substring)
-
                         else:
-                            print(f"警告: 文字列抽出設定の形式が正しくありません ('新項目名:抽出元項目:開始位置:文字数') : {line}")
-                    except Exception as e:
-                        print(f"エラー: 文字列抽出処理中にエラーが発生しました ({line}): {e}")
+                            print(f"警告: 文字列抽出設定の形式が不正 ('新:元:開始:文字数'): {line}")
+                    except Exception as extract_ex:
+                        print(f"エラー: 文字列抽出処理中にエラー ({line}): {extract_ex}")
 
-            # --- 文字除去処理　---
+            # --- 文字除去処理 ---
             remove_settings = self.remove_text.get("1.0", tk.END).strip()
             if remove_settings:
                 for line in remove_settings.split('\n'):
-                    if not line.strip():
-                        continue
-                        
-                    parts = line.split(':')
-                    if len(parts) >= 2:
-                        column = parts[0].strip()
-                        chars_to_remove = parts[1].strip().split(',')
-                        
-                        if column in result_df.columns:
-                            for char in chars_to_remove:
-                                result_df[column] = result_df[column].astype(str).str.replace(char.strip(), '', regex=False)
-            
-            # --- 文字追加処理　---
+                    line = line.strip()
+                    if not line: continue
+                    try:
+                        parts = line.split(':', 1)
+                        if len(parts) == 2:
+                            column = parts[0].strip()
+                            # 除去文字はカンマ区切りではなく、指定された文字列全体として扱う方が自然かも？
+                            # 例: "TEL:(03)1234-5678" から "TEL:", "(", ")", "-" を除去したい場合
+                            # 設定例: 電話番号:TEL:,(,),- のようにするか、
+                            # 設定例: 電話番号:TEL:():- のようにするか。後者の方が直感的か。
+                            # ここでは元のカンマ区切りを維持するが、検討の余地あり。
+                            chars_to_remove_str = parts[1].strip()
+                            chars_to_remove_list = [c.strip() for c in chars_to_remove_str.split(',') if c.strip()] # カンマ区切り
+
+                            if not column: print(f"警告: 文字除去設定で項目名が空: {line}"); continue
+                            if not chars_to_remove_list: print(f"警告: 文字除去設定で除去文字が空: {line}"); continue
+                            if column not in result_df.columns: print(f"警告: 文字除去の項目 '{column}' が見つかりません。"); continue
+
+                            # 正規表現のエスケープが必要な文字も考慮するなら replace より re.sub が安全
+                            # result_df[column] = result_df[column].astype(str)
+                            # for char in chars_to_remove_list:
+                            #     result_df[column] = result_df[column].str.replace(re.escape(char), '', regex=True)
+                            # regex=False の方が意図通りならそのままでOK
+                            for char in chars_to_remove_list:
+                                result_df[column] = result_df[column].astype(str).str.replace(char, '', regex=False)
+                        else:
+                            print(f"警告: 文字除去設定の形式が不正 (':'): {line}")
+                    except Exception as remove_ex:
+                        print(f"エラー: 文字除去処理中にエラー ({line}): {remove_ex}")
+
+
+            # --- 文字追加処理 ---
             add_settings = self.add_text.get("1.0", tk.END).strip()
             if add_settings:
                 for line in add_settings.split('\n'):
-                    if not line.strip():
-                        continue
-                        
-                    parts = line.split(':')
-                    if len(parts) >= 3:
-                        column = parts[0].strip()
-                        position = parts[1].strip()
-                        chars_to_add = parts[2].strip()
-                        
-                        if column in result_df.columns:
+                    line = line.strip()
+                    if not line: continue
+                    try:
+                        parts = line.split(':', 2) # 項目名:位置:追加文字
+                        if len(parts) == 3:
+                            column, position, chars_to_add = [p.strip() for p in parts]
+
+                            if not column: print(f"警告: 文字追加設定で項目名が空: {line}"); continue
+                            if position not in ["前", "後"]: print(f"警告: 文字追加の位置は '前' または '後': {line}"); continue
+                            # chars_to_add は空でも許可する（空文字を追加する意味はないがエラーではない）
+                            if column not in result_df.columns: print(f"警告: 文字追加の項目 '{column}' が見つかりません。"); continue
+
                             if position == "前":
                                 result_df[column] = chars_to_add + result_df[column].astype(str)
                             elif position == "後":
                                 result_df[column] = result_df[column].astype(str) + chars_to_add
-            
+                        else:
+                            print(f"警告: 文字追加設定の形式が不正 ('項目:位置:追加文字'): {line}")
+                    except Exception as add_ex:
+                        print(f"エラー: 文字追加処理中にエラー ({line}): {add_ex}")
+
+
             # --- 列の並べ替え ---
             reorder_settings = self.reorder_text.get("1.0", tk.END).strip()
-            # 並べ替え設定がない場合でも空列マッピングをクリア
-            if not reorder_settings:
-                self._empty_col_mapping = {}
-            else:
-                # カンマで分割し、前後の空白を除去するが、空文字列は保持する
+            self._empty_col_mapping = {} # 並べ替え前にクリア
+            if reorder_settings:
                 specified_columns_with_blanks = [col.strip() for col in reorder_settings.split(',')]
-
                 final_columns = []
-                new_empty_cols_mapping = {} # この処理内でのマッピング
+                new_empty_cols_mapping = {}
                 empty_col_counter = 1
 
+                current_columns = list(result_df.columns) # 現在のDFの列リストを取得
+
                 for col_name in specified_columns_with_blanks:
-                    if col_name: # 指定された項目名が空でない場合
-                        if col_name in result_df.columns:
+                    if col_name:
+                        # 大文字小文字を区別せずにチェックする方が親切かもしれないが、現状維持
+                        if col_name in current_columns:
                             final_columns.append(col_name)
                         else:
-                            # 結合や抽出で新しく作られた列かもしれないので再チェック
-                            if col_name in result_df.columns:
-                                final_columns.append(col_name)
-                            else:
-                                print(f"警告: 並べ替えで指定された列 '{col_name}' が見つかりません。")
-                    else: # 指定された項目名が空の場合 (空白列を追加)
-                        # ユニークなプレースホルダー名を生成
+                            print(f"警告: 並べ替え指定の列 '{col_name}' は現在のデータに存在しません。")
+                    else: # 空列を追加
                         placeholder_name = f"__EMPTY_COLUMN_{empty_col_counter}__"
-                        while placeholder_name in result_df.columns or placeholder_name in new_empty_cols_mapping:
+                        while placeholder_name in current_columns or placeholder_name in new_empty_cols_mapping:
                             empty_col_counter += 1
                             placeholder_name = f"__EMPTY_COLUMN_{empty_col_counter}__"
 
-                        # result_df に空の列を追加 (値はすべて空文字列)
-                        result_df[placeholder_name] = ""
+                        result_df[placeholder_name] = "" # 空列をDFに追加
                         final_columns.append(placeholder_name)
-                        new_empty_cols_mapping[placeholder_name] = '' # 保存時に空文字列''に戻すためのマッピング
+                        new_empty_cols_mapping[placeholder_name] = ''
+                        # current_columns にも追加しておく (後続の空列チェックのため)
+                        current_columns.append(placeholder_name)
                         empty_col_counter += 1
 
-                # 指定された列（空列含む）のみを抽出して並べ替え
                 if final_columns:
                     try:
-                        result_df = result_df[final_columns]
-                        # インスタンス変数に空列のマッピング情報を保存
-                        self._empty_col_mapping = new_empty_cols_mapping
+                        # 存在しない列を指定していないか最終チェック (念のため)
+                        valid_final_columns = [col for col in final_columns if col in result_df.columns]
+                        if len(valid_final_columns) != len(final_columns):
+                             print("警告: 並べ替え列リストに不正な列が含まれていました。") # より詳細な情報が必要かも
+
+                        result_df = result_df[valid_final_columns] # 存在する列のみで再構成
+                        self._empty_col_mapping = new_empty_cols_mapping # マッピングを保存
                     except KeyError as e:
-                         print(f"エラー: 列の選択中にエラーが発生しました。存在しない列: {e}")
-                         # エラーが発生した場合、元の順序を維持するか、空にするかなど検討
-                         # ここでは元のDFを返す
-                         self._empty_col_mapping = {} # マッピングもクリア
-                         return df
+                         print(f"エラー: 列の選択中に予期せぬエラー。存在しない列: {e}")
+                         # エラー時は元のDFを返す (並べ替えなし)
+                         self._empty_col_mapping = {}
+                         return df.copy() # 元のコピーを返す
+                    except Exception as reorder_ex:
+                         print(f"エラー: 列の並べ替え中に予期せぬエラー: {reorder_ex}")
+                         self._empty_col_mapping = {}
+                         return df.copy()
                 else:
-                    print("警告: 並べ替えで指定された有効な列がありません。出力は空になります。")
-                    result_df = pd.DataFrame()
-                    self._empty_col_mapping = {} # マッピングもクリア
+                    # 並べ替え指定が空、または有効な列が一つもなかった場合
+                    if specified_columns_with_blanks: # 何か指定はあったのに有効なものがなかった
+                        print("警告: 並べ替えで指定された有効な列がありません。出力は空になります。")
+                    result_df = pd.DataFrame() # 空のDataFrameを返す
+                    self._empty_col_mapping = {}
 
             return result_df
-            
+
         except Exception as e:
-            messagebox.showerror("エラー", f"データ処理中にエラーが発生しました: {str(e)}")
-            return df
+            messagebox.showerror("エラー", f"データ処理中に予期せぬエラーが発生しました: {str(e)}")
+            return df.copy() # エラー時は元のコピーを返す
     
     def update_preview(self):
-        # ツリービューをクリア
-        for i in self.tree.get_children():
-            self.tree.delete(i)
-        self.tree["columns"] = ()
-        self.tree["displaycolumns"] = ()
-
-        if self.preview_df is None or self.preview_df.empty:
-             return
-
+        # --- update_preview は self.tree が再生成されている前提で動作 ---
+        # --- 冒頭のクリア処理は不要 ---
+        # for item in self.tree.get_children(): self.tree.delete(item)
+        # self.tree["columns"] = ()
+        # self.tree["displaycolumns"] = ()
         try:
-            columns = list(self.preview_df.columns)
-            display_columns = [] # Treeviewに表示する列名リスト
-            column_widths = {}   # 列幅辞書
-            column_headings = {} # ヘッダーテキスト辞書
+            # --- TreeviewがNoneでないことを確認 ---
+            if self.tree is None:
+                 print("エラー: update_preview 呼び出し時に Treeview が存在しません。")
+                 return
 
-            # プレースホルダー名を空文字列に置き換えて表示準備
+            # --- 既存の行があればクリア ---
+            # (再生成されているはずだが、念のためクリア)
+            for item in self.tree.get_children():
+                try:
+                    self.tree.delete(item)
+                except tk.TclError: # アイテムが存在しない場合など
+                    pass # 無視
+
+            # --- 列定義もクリア (再生成されているはずだが念のため) ---
+            try:
+                self.tree["columns"] = ()
+                self.tree["displaycolumns"] = ()
+            except tk.TclError as e:
+                 print(f"警告: update_previewでの列クリア中にTclError: {e}")
+                 # ここでエラーが起きる場合、Treeviewの状態がまだおかしい可能性がある
+                 # 再度再生成を試みるか？ -> 無限ループの可能性あり。一旦無視して進める。
+                 pass
+            except Exception as e:
+                 print(f"警告: update_previewでの列クリア中にエラー: {e}")
+                 pass
+
+
+            if self.preview_df is None or self.preview_df.empty:
+                # データがない場合はここで終了 (Treeviewは空の状態)
+                return
+
+            # --- 以降の処理はほぼ同じ ---
+            columns = list(self.preview_df.columns)
+            display_columns = []
+            column_widths = {}
+            column_headings = {}
             empty_col_mapping = getattr(self, '_empty_col_mapping', {})
-            temp_columns_for_display = [] # 表示用の列名リスト（プレースホルダー含む）
+            temp_columns_for_display = []
 
             for col in columns:
-                temp_columns_for_display.append(col) # まず元の列名を追加
-                if col in empty_col_mapping:
-                    # プレースホルダー列の場合、ヘッダーは空文字列にする
-                    column_headings[col] = ""
-                else:
-                    column_headings[col] = col # 通常の列はそのまま
-                column_widths[col] = 100 # デフォルト幅
-                display_columns.append(col) # 表示対象に追加
+                temp_columns_for_display.append(col)
+                column_headings[col] = "" if col in empty_col_mapping else col
+                column_widths[col] = 100 # TODO: 列幅の自動調整や保存も検討
+                display_columns.append(col)
 
-            self.tree["columns"] = temp_columns_for_display # Treeview内部の列IDリスト
-            self.tree["displaycolumns"] = display_columns # 実際に表示する列のリストと順序
-            self.tree["show"] = "headings"
+            # --- Treeview設定 (try-exceptで囲む) ---
+            try:
+                self.tree["columns"] = temp_columns_for_display
+                self.tree["displaycolumns"] = display_columns # 表示する列を指定
+                self.tree["show"] = "headings"
 
-            # 各列のヘッダーと幅を設定
-            for col in display_columns: # 表示する列だけ設定
-                self.tree.heading(col, text=column_headings[col], anchor=tk.W)
-                self.tree.column(col, width=column_widths[col], anchor=tk.W, stretch=tk.NO)
+                for col in display_columns: # display_columns を使う
+                    self.tree.heading(col, text=column_headings[col], anchor=tk.W)
+                    self.tree.column(col, width=column_widths[col], anchor=tk.W, stretch=tk.NO)
+            except tk.TclError as e:
+                 messagebox.showerror("プレビューエラー", f"Treeviewの列設定中にエラーが発生しました。\n{e}\nアプリケーションを再起動してください。")
+                 self._cleanup_on_error() # エラー時はクリーンアップ
+                 return
+            except Exception as e:
+                 messagebox.showerror("プレビューエラー", f"Treeviewの列設定中に予期せぬエラーが発生しました。\n{e}")
+                 self._cleanup_on_error()
+                 return
 
-            # データの追加（最大10行 + 省略表示）
-            preview_rows = min(10, len(self.preview_df))
-            for i in range(preview_rows):
-                # ilocでデータを取得し、表示列の順序でリストに変換
-                row_data = self.preview_df.iloc[i]
-                values = [str(row_data[col]) if pd.notna(row_data[col]) else "" for col in temp_columns_for_display]
-                self.tree.insert("", tk.END, values=values)
 
-            if len(self.preview_df) > 10:
-                ellipsis_values = ["..."] * len(temp_columns_for_display)
-                self.tree.insert("", tk.END, values=ellipsis_values)
+            # データの表示 (try-exceptで囲む)
+            try:
+                preview_rows = min(10, len(self.preview_df)) # 表示行数を制限
+                for i in range(preview_rows):
+                    row_data = self.preview_df.iloc[i]
+                    # temp_columns_for_display を使って値を取得
+                    values = [str(row_data[col]) if pd.notna(row_data[col]) else "" for col in temp_columns_for_display]
+                    self.tree.insert("", tk.END, values=values)
+
+                # 10行より多い場合は省略記号を表示
+                if len(self.preview_df) > 10:
+                    ellipsis_values = ["..."] * len(temp_columns_for_display)
+                    self.tree.insert("", tk.END, values=ellipsis_values)
+            except Exception as e:
+                messagebox.showerror("エラー", f"プレビューデータの表示中にエラーが発生しました: {str(e)}")
+                # データ表示エラーの場合もTreeviewをクリアしておく
+                try:
+                    for item in self.tree.get_children(): self.tree.delete(item)
+                except: pass
+
 
         except Exception as e:
-             messagebox.showerror("プレビュー更新エラー", f"プレビューの更新中にエラーが発生しました: {str(e)}")
-             for i in self.tree.get_children():
-                 self.tree.delete(i)
-             self.tree["columns"] = ()
-             self.tree["displaycolumns"] = ()
+            messagebox.showerror("エラー", f"プレビューの更新中に予期せぬエラーが発生しました: {str(e)}")
+            # 致命的なエラーの場合はクリーンアップ
+            self._cleanup_on_error()
     
     def process_and_save(self):
         if not self.current_file:
             messagebox.showerror("エラー", "処理するCSVファイルが選択されていません")
             return
-        # プレビューDFがない場合や空の場合もチェック
         if self.preview_df is None or self.preview_df.empty:
-             # 空のDFを保存するかどうか。ここではエラーとする。
              messagebox.showerror("エラー", "処理対象のデータがありません。ファイルを確認してください。")
              return
 
         try:
-            # プレビューに使ったデータフレームを取得してコピー
             processed_df_preview = self.preview_df.copy()
-
-            # --- 保存直前に空列のプレースホルダー名を空文字列に戻す ---
             empty_col_mapping = getattr(self, '_empty_col_mapping', {})
-            rename_dict = {}
-            if empty_col_mapping:
-                # 実際にDataFrameに存在するプレースホルダー列のみを対象にする
-                rename_dict = {ph: '' for ph in empty_col_mapping if ph in processed_df_preview.columns}
+            rename_dict = {ph: '' for ph in empty_col_mapping if ph in processed_df_preview.columns}
 
-            if rename_dict:
-                # 列名を変更したDataFrameを保存用とする
-                processed_df_to_save = processed_df_preview.rename(columns=rename_dict)
-            else:
-                # 列名変更がない場合はそのまま
-                processed_df_to_save = processed_df_preview
-            # -------------------------------------------------------
+            processed_df_to_save = processed_df_preview.rename(columns=rename_dict) if rename_dict else processed_df_preview
 
-            # 保存先を選択
             base_name = os.path.basename(self.current_file)
             name, ext = os.path.splitext(base_name)
             output_path = filedialog.asksaveasfilename(
@@ -811,24 +904,28 @@ class CSVLayoutTool(TkinterDnD.Tk):
 
             if output_path:
                 selected_output_encoding = self.output_encoding.get()
-
-                # --- ヘッダー除去オプションに基づいて header パラメータを設定 ---
-                output_header = not self.remove_header_var.get() # チェックが入っていれば False (除去)
+                output_header = not self.remove_header_var.get()
                 try:
-                    # 空文字列ヘッダーを持つDataFrameを保存
                     processed_df_to_save.to_csv(
                         output_path,
                         index=False,
                         encoding=selected_output_encoding,
-                        header=output_header
+                        header=output_header,
+                        quoting=csv.QUOTE_ALL # ダブルクォートで囲む場合
+                        # quoting=csv.QUOTE_NONNUMERIC # 数値以外をダブルクォートで囲む場合
+                        # quoting=csv.QUOTE_MINIMAL # デフォルト（特殊文字が含まれる場合のみ）
                     )
                     messagebox.showinfo("成功", f"ファイルを保存しました: {output_path}")
                 except Exception as e:
+                     # エンコーディングエラーの可能性も考慮
                      messagebox.showerror("保存エラー", f"ファイルの保存中にエラーが発生しました (エンコーディング: {selected_output_encoding}):\n{str(e)}")
 
         except Exception as e:
             messagebox.showerror("エラー", f"処理と保存中に予期せぬエラーが発生しました: {str(e)}")
-        # finallyブロックは不要 (process_dataframeの開始時にリセットするため)
+
+# --- csvモジュールをインポート ---
+import csv
+
 if __name__ == "__main__":
     app = CSVLayoutTool()
     app.mainloop()
