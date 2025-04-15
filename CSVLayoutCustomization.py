@@ -21,6 +21,9 @@ class CSVLayoutTool(TkinterDnD.Tk):
         self.encoding = tk.StringVar(value="shift_jis")  # デフォルトはshift_jis
         self.output_encoding = tk.StringVar(value="shift_jis")  # 出力のエンコーディング
 
+        # --- ヘッダー除去関連 (新規追加) ---
+        self.remove_header_var = tk.BooleanVar(value=False)
+
         # --- 都道府県削除関連 ---
         self.remove_prefecture_var = tk.BooleanVar(value=False)
         self.remove_prefecture_column_var = tk.StringVar()
@@ -246,6 +249,18 @@ class CSVLayoutTool(TkinterDnD.Tk):
         vsb.config(command=self.tree.yview)
         hsb.config(command=self.tree.xview)
 
+        # --- ヘッダー除去チェックボックス ---
+        header_frame = ttk.Frame(right_frame)
+        header_frame.pack(fill=tk.X, padx=5, pady=(5, 0)) # ボタンの少し上に配置
+        self.remove_header_check = ttk.Checkbutton(
+            header_frame,
+            text="出力時にヘッダー行を除去する",
+            variable=self.remove_header_var,
+            onvalue=True,
+            offvalue=False
+        )
+        self.remove_header_check.pack(side=tk.LEFT, anchor=tk.W)
+
         # 実行ボタン (元の位置に戻す)
         ttk.Button(right_frame, text="変換して保存", command=self.process_and_save).pack(fill=tk.X, padx=5, pady=5) # この行は元の場所にあるはず
 
@@ -284,7 +299,8 @@ class CSVLayoutTool(TkinterDnD.Tk):
                 "remove": "",
                 "add": "",
                 "remove_prefecture": {"enabled": False, "column": ""},
-                "get_pref_code": {"enabled": False, "source_column": "", "new_column": "都道府県コード"}
+                "get_pref_code": {"enabled": False, "source_column": "", "new_column": "都道府県コード"},
+                "remove_header": False
             }
             
             self.profile_combobox["values"] = list(self.profiles.keys())
@@ -312,7 +328,8 @@ class CSVLayoutTool(TkinterDnD.Tk):
                 "enabled": self.get_pref_code_var.get(),
                 "source_column": self.get_pref_code_source_column_var.get(),
                 "new_column": self.get_pref_code_new_column_var.get()
-            }
+            },
+            "remove_header": self.remove_header_var.get()
         }
         
         self.save_profiles()
@@ -343,7 +360,8 @@ class CSVLayoutTool(TkinterDnD.Tk):
                 self.get_pref_code_var.set(False)
                 self.get_pref_code_source_column_var.set("")
                 self.get_pref_code_new_column_var.set("都道府県コード")                
-                
+                self.remove_header_var.set(False)
+
             self.save_profiles()
     
     def load_profile(self, event):
@@ -375,6 +393,9 @@ class CSVLayoutTool(TkinterDnD.Tk):
         self.get_pref_code_var.set(get_pref_code_settings.get("enabled", False))
         self.get_pref_code_source_column_var.set(get_pref_code_settings.get("source_column", ""))
         self.get_pref_code_new_column_var.set(get_pref_code_settings.get("new_column", "都道府県コード"))
+
+        # ヘッダー除去設定の読み込み
+        self.remove_header_var.set(profile.get("remove_header", False))
 
         # 現在のファイルがあれば再プレビュー
         if self.current_file:
@@ -790,9 +811,17 @@ class CSVLayoutTool(TkinterDnD.Tk):
 
             if output_path:
                 selected_output_encoding = self.output_encoding.get()
+
+                # --- ヘッダー除去オプションに基づいて header パラメータを設定 ---
+                output_header = not self.remove_header_var.get() # チェックが入っていれば False (除去)
                 try:
                     # 空文字列ヘッダーを持つDataFrameを保存
-                    processed_df_to_save.to_csv(output_path, index=False, encoding=selected_output_encoding)
+                    processed_df_to_save.to_csv(
+                        output_path,
+                        index=False,
+                        encoding=selected_output_encoding,
+                        header=output_header
+                    )
                     messagebox.showinfo("成功", f"ファイルを保存しました: {output_path}")
                 except Exception as e:
                      messagebox.showerror("保存エラー", f"ファイルの保存中にエラーが発生しました (エンコーディング: {selected_output_encoding}):\n{str(e)}")
