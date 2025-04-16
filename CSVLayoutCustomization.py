@@ -165,6 +165,16 @@ class CSVLayoutTool(TkinterDnD.Tk):
         self.add_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         ttk.Label(add_frame, text="例: 商品コード:前:A- / 価格:後:円").pack(pady=5, padx=5, anchor=tk.W)
 
+        # --- 文字置換タブ ---
+        replace_frame = ttk.Frame(self.operations_notebook)
+        self.operations_notebook.add(replace_frame, text="文字置換")
+
+        ttk.Label(replace_frame, text="置換設定 (項目名:置換前文字列:置換後文字列)").pack(pady=(10, 5), padx=5, anchor=tk.W)
+        self.replace_text = ScrolledText(replace_frame, height=8, width=40, wrap=tk.WORD)
+        self.replace_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        ttk.Label(replace_frame, text="例: ステータス:処理中:完了 / 商品名:旧製品:新製品").pack(pady=5, padx=5, anchor=tk.W)
+        ttk.Label(replace_frame, text="※各設定は改行で区切ってください").pack(pady=(0,5), padx=5, anchor=tk.W)
+
         # --- 都道府県コード取得タブ ---
         pref_code_frame = ttk.Frame(self.operations_notebook)
         self.operations_notebook.add(pref_code_frame, text="都道府県コード")
@@ -318,6 +328,7 @@ class CSVLayoutTool(TkinterDnD.Tk):
                 "extract": "",
                 "remove": "",
                 "add": "",
+                "replace": "",
                 "remove_prefecture": {"enabled": False, "column": ""},
                 "get_pref_code": {"enabled": False, "source_column": "", "new_column": "都道府県コード"},
                 "remove_header": False
@@ -340,6 +351,7 @@ class CSVLayoutTool(TkinterDnD.Tk):
             "extract": self.extract_text.get("1.0", tk.END).strip(),
             "remove": self.remove_text.get("1.0", tk.END).strip(),
             "add": self.add_text.get("1.0", tk.END).strip(),
+            "replace": self.replace_text.get("1.0", tk.END).strip(),
             "remove_prefecture": {
                 "enabled": self.remove_prefecture_var.get(),
                 "column": self.remove_prefecture_column_var.get()
@@ -382,6 +394,7 @@ class CSVLayoutTool(TkinterDnD.Tk):
                 self.get_pref_code_source_column_var.set("")
                 self.get_pref_code_new_column_var.set("都道府県コード")
                 self.remove_header_var.set(False)
+                self.replace_text.delete("1.0", tk.END)
 
             self.save_profiles()
     
@@ -403,6 +416,8 @@ class CSVLayoutTool(TkinterDnD.Tk):
         self.remove_text.insert(tk.END, profile.get("remove", ""))
         self.add_text.delete("1.0", tk.END)
         self.add_text.insert(tk.END, profile.get("add", ""))
+        self.replace_text.delete("1.0", tk.END)
+        self.replace_text.insert(tk.END, profile.get("replace", ""))
 
         # 都道府県削除設定の読み込み
         remove_pref_settings = profile.get("remove_prefecture", {"enabled": False, "column": ""}) # デフォルト値
@@ -490,11 +505,11 @@ class CSVLayoutTool(TkinterDnD.Tk):
             selected_encoding = self.encoding.get()
             df = None
             try:
-                df = pd.read_csv(file_path, encoding=selected_encoding)
+                df = pd.read_csv(file_path, encoding=selected_encoding, dtype=str, keep_default_na=False)
             except UnicodeDecodeError:
                 alternative_encoding = "shift_jis" if selected_encoding == "utf-8" else "utf-8"
                 try:
-                    df = pd.read_csv(file_path, encoding=alternative_encoding)
+                    df = pd.read_csv(file_path, encoding=alternative_encoding, dtype=str, keep_default_na=False)
                     self.encoding.set(alternative_encoding)
                     messagebox.showinfo("エンコーディング変更",
                                         f"選択されたエンコーディング({selected_encoding})では読み込めませんでした。\n"
@@ -718,6 +733,39 @@ class CSVLayoutTool(TkinterDnD.Tk):
                     except Exception as add_ex:
                         print(f"エラー: 文字追加処理中にエラー ({line}): {add_ex}")
 
+            # --- 文字置換処理 ---
+            replace_settings = self.replace_text.get("1.0", tk.END).strip()
+            if replace_settings:
+                for line in replace_settings.split('\n'):
+                    line = line.strip()
+                    if not line: continue
+                    try:
+                        parts = line.split(':', 2) # 項目名:置換前:置換後
+                        if len(parts) == 3:
+                            column, old_str, new_str = [p.strip() for p in parts]
+
+                            if not column:
+                                print(f"警告: 文字置換設定で項目名が空: {line}")
+                                continue
+                            # 置換前文字列が空の場合はスキップ
+                            if not old_str:
+                                print(f"警告: 文字置換設定で置換前文字列が空: {line}")
+                                continue
+                            if column not in result_df.columns:
+                                print(f"警告: 文字置換の項目 '{column}' が見つかりません。")
+                                continue
+
+                            # 1. 対象列を文字列型に変換 (NaNは空文字列にする)
+                            #    fillna('') を追加して欠損値も安全に扱えるようにします。
+                            result_df[column] = result_df[column].fillna('').astype(str)
+                            # 2. old_str と完全に一致する値を new_str に置換
+                            #    .loc を使って条件に一致する行の該当列のみを更新します。
+                            result_df.loc[result_df[column] == old_str, column] = new_str
+
+                        else:
+                            print(f"警告: 文字置換設定の形式が不正 ('項目:置換前:置換後'): {line}")
+                    except Exception as replace_ex:
+                        print(f"エラー: 文字置換処理中にエラーが発生しました ({line}): {replace_ex}")
 
             # --- 列の並べ替え ---
             reorder_settings = self.reorder_text.get("1.0", tk.END).strip()
