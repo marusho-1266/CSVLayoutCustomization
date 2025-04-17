@@ -175,10 +175,11 @@ class CSVLayoutTool(TkinterDnD.Tk):
         merge_frame = ttk.Frame(self.operations_notebook)
         self.operations_notebook.add(merge_frame, text="結合")
 
-        ttk.Label(merge_frame, text="結合設定 (新項目名:結合元項目1,結合元項目2... 区切り文字)").pack(pady=(10, 5), padx=5, anchor=tk.W)
+        ttk.Label(merge_frame, text="結合設定 (新項目名:結合元項目1,結合元項目2...,区切り文字)").pack(pady=(10, 5), padx=5, anchor=tk.W)
         self.merge_text = ScrolledText(merge_frame, height=8, width=40, wrap=tk.WORD)
         self.merge_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        ttk.Label(merge_frame, text="例: 氏名:姓,名 / 住所:都道府県,市区町村,番地").pack(pady=5, padx=5, anchor=tk.W)
+        ttk.Label(merge_frame, text="例: 氏名:姓,名, / 住所:都道府県,市区町村,番地,-").pack(pady=5, padx=5, anchor=tk.W)
+        ttk.Label(merge_frame, text="※最後のカンマ以降が区切り文字になります").pack(pady=(0,5), padx=5, anchor=tk.W)
 
         # 都道府県コード取得タブ
         pref_code_frame = ttk.Frame(self.operations_notebook)
@@ -736,27 +737,24 @@ class CSVLayoutTool(TkinterDnD.Tk):
                         warnings.append(f"結合設定(行 {line_num}): 新項目名が空です。スキップします: {line.strip()}")
                         continue
 
-                    # 区切り文字抽出ロジック
-                    separator = '' # デフォルトは空文字
-                    source_columns_str = merge_info.rstrip()
-
-                    if len(merge_info) > len(source_columns_str):
-                        separator = merge_info[len(source_columns_str):]
-                        temp_source_check = source_columns_str.strip()
-                        if temp_source_check.endswith(','):
-                             separator = ''
-                             source_columns_str = merge_info.strip()
-                        # else: pass # 区切り文字として separator を使う
-                    else:
-                        separator = ''
+                    # --- 区切り文字抽出 ---
+                    last_comma_index = merge_info.rfind(',')
+                    if last_comma_index == -1:
+                        # カンマがない場合: 結合元は1つ、区切り文字なしと解釈
                         source_columns_str = merge_info.strip()
-
-                    # 結合元項目リストをカンマで分割
-                    source_columns = [col.strip() for col in source_columns_str.split(',') if col.strip()]
-
-                    if not source_columns:
-                        warnings.append(f"結合設定(行 {line_num}): 結合元項目が指定されていません。スキップします: {line.strip()}")
-                        continue
+                        separator = ''
+                        source_columns = [source_columns_str] if source_columns_str else []
+                        if not source_columns:
+                             warnings.append(f"結合設定(行 {line_num}): 結合元項目が指定されていません。スキップします: {line.strip()}")
+                             continue
+                    else:
+                        # 最後のカンマより前が結合元項目リスト、後ろが区切り文字
+                        source_columns_str = merge_info[:last_comma_index].strip()
+                        separator = merge_info[last_comma_index + 1:] # 末尾のスペース等も区切り文字の一部として保持
+                        source_columns = [col.strip() for col in source_columns_str.split(',') if col.strip()]
+                        if not source_columns:
+                            warnings.append(f"結合設定(行 {line_num}): 結合元項目が指定されていません。スキップします: {line.strip()}")
+                            continue
 
                     # 結合元項目がDataFrameに存在するかチェック
                     missing_cols = [col for col in source_columns if col not in df.columns]
