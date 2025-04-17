@@ -112,15 +112,6 @@ class CSVLayoutTool(TkinterDnD.Tk):
         self.reorder_text = ScrolledText(reorder_frame, height=8, width=40, wrap=tk.WORD)
         self.reorder_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # 結合タブ
-        merge_frame = ttk.Frame(self.operations_notebook)
-        self.operations_notebook.add(merge_frame, text="結合")
-
-        ttk.Label(merge_frame, text="結合設定 (新項目名:結合元項目1,結合元項目2... 区切り文字)").pack(pady=(10, 5), padx=5, anchor=tk.W)
-        self.merge_text = ScrolledText(merge_frame, height=8, width=40, wrap=tk.WORD)
-        self.merge_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        ttk.Label(merge_frame, text="例: 氏名:姓,名 / 住所:都道府県,市区町村,番地").pack(pady=5, padx=5, anchor=tk.W)
-
         # 文字列抽出タブ
         extract_frame = ttk.Frame(self.operations_notebook)
         self.operations_notebook.add(extract_frame, text="文字列抽出")
@@ -179,6 +170,15 @@ class CSVLayoutTool(TkinterDnD.Tk):
         self.replace_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         ttk.Label(replace_frame, text="例: ステータス:処理中:完了 / 商品名:旧製品:新製品").pack(pady=5, padx=5, anchor=tk.W)
         ttk.Label(replace_frame, text="※各設定は改行で区切ってください").pack(pady=(0,5), padx=5, anchor=tk.W)
+
+        # 結合タブ
+        merge_frame = ttk.Frame(self.operations_notebook)
+        self.operations_notebook.add(merge_frame, text="結合")
+
+        ttk.Label(merge_frame, text="結合設定 (新項目名:結合元項目1,結合元項目2... 区切り文字)").pack(pady=(10, 5), padx=5, anchor=tk.W)
+        self.merge_text = ScrolledText(merge_frame, height=8, width=40, wrap=tk.WORD)
+        self.merge_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        ttk.Label(merge_frame, text="例: 氏名:姓,名 / 住所:都道府県,市区町村,番地").pack(pady=5, padx=5, anchor=tk.W)
 
         # 都道府県コード取得タブ
         pref_code_frame = ttk.Frame(self.operations_notebook)
@@ -621,11 +621,11 @@ class CSVLayoutTool(TkinterDnD.Tk):
 
             result_df, warnings = self._process_get_pref_code(result_df, warnings)
             result_df, warnings = self._process_remove_prefecture(result_df, warnings)
-            result_df, warnings = self._process_merge(result_df, warnings)
             result_df, warnings = self._process_extract(result_df, warnings)
             result_df, warnings = self._process_remove(result_df, warnings)
             result_df, warnings = self._process_add(result_df, warnings)
             result_df, warnings = self._process_replace(result_df, warnings)
+            result_df, warnings = self._process_merge(result_df, warnings)
             result_df, warnings = self._process_reorder(result_df, warnings)
 
             # 警告があればコンソールに出力 (必要に応じてUI表示に変更)
